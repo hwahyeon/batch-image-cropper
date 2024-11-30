@@ -1,1 +1,1 @@
-# batch-image-cropper
+# Batch Image Cropper
