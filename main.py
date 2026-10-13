@@ -104,6 +104,7 @@ class ImageCropperApp:
         self._btn(zoom_frame, "−", self.zoom_out, style="ghost").pack(side=tk.LEFT, padx=2)
         self._btn(zoom_frame, "100%", self.zoom_reset, style="ghost").pack(side=tk.LEFT, padx=2)
         self._btn(zoom_frame, "＋", self.zoom_in, style="ghost").pack(side=tk.LEFT, padx=2)
+        self._btn(zoom_frame, "⤢  Fit", self.zoom_fit, style="ghost").pack(side=tk.LEFT, padx=2)
 
         # separator
         tk.Frame(bar, bg=BORDER, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=14, pady=2)
@@ -547,6 +548,18 @@ class ImageCropperApp:
 
     def zoom_reset(self):
         self.scale = 1.0
+        self.display_image()
+
+    def zoom_fit(self):
+        if not self.images:
+            return
+        img = self.images[self.current_image_index]
+        cw = self.canvas.winfo_width()
+        ch = self.canvas.winfo_height()
+        if cw < 2 or ch < 2:
+            return
+        scale = min(cw / img.width, ch / img.height)
+        self.scale = round(max(0.1, min(scale, 10.0)), 2)
         self.display_image()
 
     def scroll_or_zoom(self, event):
