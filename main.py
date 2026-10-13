@@ -193,12 +193,15 @@ class ImageCropperApp:
 
     def _canvas_placeholder(self):
         self.canvas.delete("placeholder")
+        cx = self.canvas.winfo_width() / 2 or 400
+        cy = self.canvas.winfo_height() / 2 or 260
         self.canvas.create_text(
-            400, 260,
+            cx, cy,
             text="Load images to get started",
             fill=FG_DIM, font=("Segoe UI", 13),
             tags="placeholder",
         )
+        self.canvas.configure(scrollregion=(0, 0, 0, 0))
 
     # ── Thumbnail strip ──────────────────────────────────────────────────────
 
@@ -644,7 +647,8 @@ class ImageCropperApp:
             return
         if self._resize_job:
             self.root.after_cancel(self._resize_job)
-        self._resize_job = self.root.after(100, self.display_image)
+        target = self.display_image if self.images else self._canvas_placeholder
+        self._resize_job = self.root.after(100, target)
 
 
 if __name__ == "__main__":
