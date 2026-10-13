@@ -56,10 +56,13 @@ class ImageCropperApp:
         self.crop_coords = None          # original image pixel coords
         self.is_cropping = False
         self.scale = 1.0
-        self.cropped_images = []
+        self.history = []                # undo stack: list of image lists
         self.thumbnail_buttons = []
         self._resize_job = None
         self._closing = False
+        self._drag_mode = None           # 'new' | 'move' | handle name
+        self._drag_start_canvas = None
+        self._drag_orig_coords = None
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._build_ui()
@@ -84,11 +87,23 @@ class ImageCropperApp:
 
         self.btn_load  = self._btn(left, "＋  Load Images",   self.load_images,        style="primary")
         self.btn_crop  = self._btn(left, "✂  Crop All",       self.batch_crop,         style="normal")
+        self.btn_undo  = self._btn(left, "↩  Undo",           self.undo_crop,          style="ghost")
         self.btn_clear = self._btn(left, "✕  Clear",          self.clear_crop,         style="ghost")
-        self.btn_save  = self._btn(left, "↓  Save Results",   self.save_cropped_images,style="normal")
+        self.btn_save  = self._btn(left, "↓  Save Results",   self.save_images,        style="normal")
 
-        for btn in (self.btn_load, self.btn_crop, self.btn_clear, self.btn_save):
+        for btn in (self.btn_load, self.btn_crop, self.btn_undo, self.btn_clear, self.btn_save):
             btn.pack(side=tk.LEFT, padx=3)
+
+        # separator
+        tk.Frame(bar, bg=BORDER, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=14, pady=2)
+
+        # zoom controls
+        zoom_frame = tk.Frame(bar, bg=SURFACE)
+        zoom_frame.pack(side=tk.LEFT)
+
+        self._btn(zoom_frame, "−", self.zoom_out, style="ghost").pack(side=tk.LEFT, padx=2)
+        self._btn(zoom_frame, "100%", self.zoom_reset, style="ghost").pack(side=tk.LEFT, padx=2)
+        self._btn(zoom_frame, "＋", self.zoom_in, style="ghost").pack(side=tk.LEFT, padx=2)
 
         # separator
         tk.Frame(bar, bg=BORDER, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=14, pady=2)
@@ -166,7 +181,8 @@ class ImageCropperApp:
         self.canvas.bind("<ButtonPress-1>",   self.start_crop)
         self.canvas.bind("<B1-Motion>",      self.update_crop)
         self.canvas.bind("<ButtonRelease-1>", self.end_crop)
-        self.canvas.bind("<MouseWheel>",     self.zoom_image)
+        self.canvas.bind("<MouseWheel>",     self.scroll_or_zoom)
+        self.canvas.bind("<Shift-MouseWheel>", self.scroll_horizontal)
         self.canvas.bind("<Motion>",         self.update_cursor_coords)
         self.canvas.bind("<ButtonPress-2>",  self.pan_start)
         self.canvas.bind("<B2-Motion>",      self.pan_move)
@@ -254,10 +270,11 @@ class ImageCropperApp:
         self.images = images
         self.current_image_index = 0
         self.crop_coords = None
-        self.cropped_images = []
+        self.history = []
         self.display_image()
         self.display_thumbnails()
         self._set_loading(False)
+        self._update_undo_btn()
         self.status_var.set(f"Loaded {len(self.images)} image(s)")
 
     def _set_loading(self, loading: bool):
@@ -357,6 +374,16 @@ class ImageCropperApp:
 
     # ── Crop interaction ─────────────────────────────────────────────────────
 
+    _HANDLE_HIT = 10   # canvas-pixel hit radius for handles
+
+    _HANDLE_CURSORS = {
+        'TL': 'size_nw_se', 'TR': 'size_ne_sw',
+        'BL': 'size_ne_sw', 'BR': 'size_nw_se',
+        'TM': 'size_ns',    'BM': 'size_ns',
+        'ML': 'size_we',    'MR': 'size_we',
+        'move': 'fleur',    'new': 'crosshair',
+    }
+
     def _canvas_to_image(self, cx, cy):
         if not self.images:
             return cx, cy
@@ -366,23 +393,96 @@ class ImageCropperApp:
             max(0.0, min(cy / self.scale, img.height)),
         )
 
+    def _norm_canvas(self):
+        """Normalized selection in canvas coords (lx, ly, rx, ry)."""
+        if self.crop_coords is None:
+            return None
+        x1, y1, x2, y2 = self.crop_coords
+        return (
+            min(x1, x2) * self.scale, min(y1, y2) * self.scale,
+            max(x1, x2) * self.scale, max(y1, y2) * self.scale,
+        )
+
+    def _hit_test(self, cx, cy):
+        """Return hit zone: handle name | 'move' | 'new'."""
+        nc = self._norm_canvas()
+        if nc is None:
+            return 'new'
+        lx, ly, rx, ry = nc
+        mx, my = (lx + rx) / 2, (ly + ry) / 2
+        handles = {
+            'TL': (lx, ly), 'TM': (mx, ly), 'TR': (rx, ly),
+            'ML': (lx, my),                  'MR': (rx, my),
+            'BL': (lx, ry), 'BM': (mx, ry), 'BR': (rx, ry),
+        }
+        h = self._HANDLE_HIT
+        for name, (hx, hy) in handles.items():
+            if abs(cx - hx) <= h and abs(cy - hy) <= h:
+                return name
+        if lx <= cx <= rx and ly <= cy <= ry:
+            return 'move'
+        return 'new'
+
     def start_crop(self, event):
-        self.is_cropping = True
-        ox, oy = self._canvas_to_image(self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
-        self.crop_coords = (ox, oy, ox, oy)
+        if not self.images:
+            return
+        cx, cy = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        hit = self._hit_test(cx, cy)
+        self._drag_mode = hit
+        self._drag_start_canvas = (cx, cy)
+        self._drag_orig_coords = self.crop_coords
+
+        if hit == 'new':
+            ox, oy = self._canvas_to_image(cx, cy)
+            self.crop_coords = (ox, oy, ox, oy)
+            self.is_cropping = True
 
     def update_crop(self, event):
-        if not self.is_cropping:
+        if self._drag_mode is None:
             return
-        x1, y1, _, _ = self.crop_coords
-        x2, y2 = self._canvas_to_image(self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
-        self.crop_coords = (x1, y1, x2, y2)
+        cx, cy = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
         self.scroll_on_drag(event)
+
+        if self._drag_mode == 'new':
+            x1, y1, _, _ = self.crop_coords
+            x2, y2 = self._canvas_to_image(cx, cy)
+            self.crop_coords = (x1, y1, x2, y2)
+
+        elif self._drag_mode == 'move':
+            sx, sy = self._drag_start_canvas
+            dx, dy = (cx - sx) / self.scale, (cy - sy) / self.scale
+            ox1, oy1, ox2, oy2 = self._drag_orig_coords
+            img = self.images[self.current_image_index]
+            # clamp so box stays inside image
+            w, h = abs(ox2 - ox1), abs(oy2 - oy1)
+            nx1 = max(0, min(ox1 + dx, img.width  - w))
+            ny1 = max(0, min(oy1 + dy, img.height - h))
+            self.crop_coords = (nx1, ny1, nx1 + w, ny1 + h)
+
+        else:
+            # resize: _drag_orig_coords is normalized (lx,ly,rx,ry) in image px
+            ox1, oy1, ox2, oy2 = self._drag_orig_coords
+            lx = min(ox1, ox2); ly = min(oy1, oy2)
+            rx = max(ox1, ox2); ry = max(oy1, oy2)
+            mx, my = self._canvas_to_image(cx, cy)
+            img = self.images[self.current_image_index]
+            mx = max(0, min(mx, img.width))
+            my = max(0, min(my, img.height))
+
+            if 'L' in self._drag_mode: lx = mx
+            if 'R' in self._drag_mode: rx = mx
+            if 'T' in self._drag_mode: ly = my
+            if 'B' in self._drag_mode: ry = my
+            self.crop_coords = (lx, ly, rx, ry)
+
         self._draw_crop_rect()
         self._update_status_coords()
 
     def end_crop(self, event):
         self.is_cropping = False
+        self._drag_mode = None
+        self._drag_start_canvas = None
+        self._drag_orig_coords = None
         self._update_status_coords()
 
     def clear_crop(self):
@@ -406,9 +506,12 @@ class ImageCropperApp:
         )
 
     def update_cursor_coords(self, event):
-        if self.is_cropping or not self.images:
+        if self._drag_mode is not None or not self.images:
             return
-        ox, oy = self._canvas_to_image(self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
+        cx, cy = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        hit = self._hit_test(cx, cy)
+        self.canvas.config(cursor=self._HANDLE_CURSORS.get(hit, 'crosshair'))
+        ox, oy = self._canvas_to_image(cx, cy)
         self.status_var.set(f"Zoom: {self.scale * 100:.0f}%  |  Position: ({int(ox)}, {int(oy)})")
 
     def scroll_on_drag(self, event):
@@ -432,12 +535,30 @@ class ImageCropperApp:
     def pan_end(self, event):
         self.canvas.config(cursor="")
 
-    def zoom_image(self, event):
-        if event.delta > 0:
-            self.scale += 0.1
-        elif event.delta < 0:
-            self.scale = max(0.1, self.scale - 0.1)
+    def zoom_in(self):
+        self.scale = round(min(self.scale + 0.1, 10.0), 1)
         self.display_image()
+
+    def zoom_out(self):
+        self.scale = round(max(self.scale - 0.1, 0.1), 1)
+        self.display_image()
+
+    def zoom_reset(self):
+        self.scale = 1.0
+        self.display_image()
+
+    def scroll_or_zoom(self, event):
+        if event.state & 0x4:  # Ctrl held
+            if event.delta > 0:
+                self.scale += 0.1
+            elif event.delta < 0:
+                self.scale = max(0.1, self.scale - 0.1)
+            self.display_image()
+        else:
+            self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+    def scroll_horizontal(self, event):
+        self.canvas.xview_scroll(-1 if event.delta > 0 else 1, "units")
 
     # ── Crop & Save ──────────────────────────────────────────────────────────
 
@@ -456,7 +577,10 @@ class ImageCropperApp:
             messagebox.showerror("Error", "Please select an area to crop.")
             return
 
-        self.cropped_images = []
+        # push current state to undo stack
+        self.history.append(self.images[:])
+
+        new_images = []
         for image in self.images:
             box = (
                 max(0, orig_box[0]),
@@ -464,12 +588,34 @@ class ImageCropperApp:
                 min(image.width, orig_box[2]),
                 min(image.height, orig_box[3]),
             )
-            self.cropped_images.append(image.crop(box))
-        messagebox.showinfo("Success", f"Cropped {len(self.cropped_images)} image(s).")
+            new_images.append(image.crop(box))
 
-    def save_cropped_images(self):
-        if not self.cropped_images:
-            messagebox.showerror("Error", "No cropped images to save.")
+        self.images = new_images
+        self.crop_coords = None
+        self.display_image()
+        self.display_thumbnails()
+        self._update_undo_btn()
+        self.status_var.set(f"Cropped {len(self.images)} image(s)  —  Undo available")
+
+    def undo_crop(self):
+        if not self.history:
+            return
+        self.images = self.history.pop()
+        self.crop_coords = None
+        self.display_image()
+        self.display_thumbnails()
+        self._update_undo_btn()
+        depth = len(self.history)
+        self.status_var.set(
+            f"Undo complete  —  {depth} step(s) remaining" if depth else "Undo complete"
+        )
+
+    def _update_undo_btn(self):
+        self.btn_undo.config(state=tk.NORMAL if self.history else tk.DISABLED)
+
+    def save_images(self):
+        if not self.images:
+            messagebox.showerror("Error", "No images to save.")
             return
         save_dir = filedialog.askdirectory()
         if not save_dir:
@@ -477,14 +623,13 @@ class ImageCropperApp:
 
         fmt = self.save_format.get()
         ext = fmt.lower()
-        for i, cropped in enumerate(self.cropped_images):
-            img = cropped
+        for i, img in enumerate(self.images):
             if fmt == "JPEG" and img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
             base = os.path.splitext(os.path.basename(self.image_paths[i]))[0]
             save_path = self._unique_path(save_dir, f"{base}_cropped", ext)
             img.save(save_path, format=fmt)
-        messagebox.showinfo("Success", f"Saved {len(self.cropped_images)} image(s) to {save_dir}.")
+        messagebox.showinfo("Success", f"Saved {len(self.images)} image(s) to {save_dir}.")
 
     def _unique_path(self, directory, stem, ext):
         path = os.path.join(directory, f"{stem}.{ext}")
