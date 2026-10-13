@@ -598,9 +598,9 @@ class ImageCropperApp:
     def scroll_or_zoom(self, event):
         if event.state & 0x4:  # Ctrl held
             if event.delta > 0:
-                self.scale += 0.1
+                self.scale = round(min(self.scale + 0.1, 10.0), 1)
             elif event.delta < 0:
-                self.scale = max(0.1, self.scale - 0.1)
+                self.scale = round(max(self.scale - 0.1, 0.1), 1)
             self.display_image()
         else:
             self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
