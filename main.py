@@ -41,6 +41,32 @@ def _apply_ttk_style():
         )
 
 
+class _Tooltip:
+    def __init__(self, widget, text):
+        self._widget = widget
+        self._text = text
+        self._tip = None
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
+
+    def _show(self, _event=None):
+        x = self._widget.winfo_rootx() + self._widget.winfo_width() // 2
+        y = self._widget.winfo_rooty() - 26
+        self._tip = tw = tk.Toplevel(self._widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        tk.Label(
+            tw, text=self._text,
+            bg="#2a2a3a", fg=FG, relief=tk.FLAT,
+            font=("Segoe UI", 8), padx=6, pady=3,
+        ).pack()
+
+    def _hide(self, _event=None):
+        if self._tip:
+            self._tip.destroy()
+            self._tip = None
+
+
 class ImageCropperApp:
     def __init__(self, root):
         self.root = root
@@ -358,6 +384,7 @@ class ImageCropperApp:
             )
             btn.image = tk_thumbnail
             btn.pack(side=tk.LEFT, padx=7, pady=10)
+            _Tooltip(btn, os.path.basename(self.image_paths[index]))
             self.thumbnail_buttons.append(btn)
 
         self._highlight_thumbnail()
