@@ -358,9 +358,15 @@ class ImageCropperApp:
             lx, ly, rx, ry,
             outline=ACCENT_H, width=2, dash=(6, 4), tags="crop_rect",
         )
-        # corner handles
+        # 8 handles: 4 corners + 4 edge midpoints
         h = 7
-        for hx, hy in ((lx, ly), (rx, ly), (lx, ry), (rx, ry)):
+        mx = (lx + rx) / 2
+        my = (ly + ry) / 2
+        for hx, hy in (
+            (lx, ly), (mx, ly), (rx, ly),
+            (lx, my),            (rx, my),
+            (lx, ry), (mx, ry), (rx, ry),
+        ):
             self.canvas.create_rectangle(
                 hx - h, hy - h, hx + h, hy + h,
                 fill=ACCENT_H, outline=CANVAS_BG, width=2, tags="crop_rect",
