@@ -397,7 +397,6 @@ class ImageCropperApp:
         )
 
     def _norm_canvas(self):
-        """Normalized selection in canvas coords (lx, ly, rx, ry)."""
         if self.crop_coords is None:
             return None
         x1, y1, x2, y2 = self.crop_coords
