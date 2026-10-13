@@ -302,6 +302,7 @@ class ImageCropperApp:
         self.current_image_index = 0
         self.crop_coords = None
         self.history = []
+        self.scale = 1.0
         self.display_image()
         self.display_thumbnails()
         self._set_loading(False)
