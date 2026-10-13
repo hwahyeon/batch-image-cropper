@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, ttk
 from PIL import Image, ImageTk
 import os
 import threading
@@ -608,17 +608,17 @@ class ImageCropperApp:
 
     def batch_crop(self):
         if not self.images:
-            messagebox.showerror("Error", "No images loaded.")
+            self.status_var.set("No images loaded.")
             return
         if self.crop_coords is None:
-            messagebox.showerror("Error", "Please select an area to crop.")
+            self.status_var.set("Please select an area to crop.")
             return
 
         x1, y1, x2, y2 = self.crop_coords
         orig_box = (int(min(x1, x2)), int(min(y1, y2)), int(max(x1, x2)), int(max(y1, y2)))
 
         if orig_box[0] == orig_box[2] or orig_box[1] == orig_box[3]:
-            messagebox.showerror("Error", "Please select an area to crop.")
+            self.status_var.set("Please select an area to crop.")
             return
 
         # push current state to undo stack
@@ -659,7 +659,7 @@ class ImageCropperApp:
 
     def save_images(self):
         if not self.images:
-            messagebox.showerror("Error", "No images to save.")
+            self.status_var.set("No images to save.")
             return
         save_dir = filedialog.askdirectory()
         if not save_dir:
@@ -673,7 +673,7 @@ class ImageCropperApp:
             base = os.path.splitext(os.path.basename(self.image_paths[i]))[0]
             save_path = self._unique_path(save_dir, f"{base}_cropped", ext)
             img.save(save_path, format=fmt)
-        messagebox.showinfo("Success", f"Saved {len(self.images)} image(s) to {save_dir}.")
+        self.status_var.set(f"Saved {len(self.images)} image(s) to {save_dir}")
 
     def _unique_path(self, directory, stem, ext):
         path = os.path.join(directory, f"{stem}.{ext}")
