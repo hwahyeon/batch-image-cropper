@@ -80,7 +80,6 @@ class ImageCropperApp:
         self.image_paths = []
         self.current_image_index = 0
         self.crop_coords = None          # original image pixel coords
-        self.is_cropping = False
         self.scale = 1.0
         self.history = []                # undo stack: list of image lists
         self.thumbnail_buttons = []
@@ -468,7 +467,6 @@ class ImageCropperApp:
         if hit == 'new':
             ox, oy = self._canvas_to_image(cx, cy)
             self.crop_coords = (ox, oy, ox, oy)
-            self.is_cropping = True
 
     def update_crop(self, event):
         if self._drag_mode is None:
@@ -512,7 +510,6 @@ class ImageCropperApp:
         self._update_status_coords()
 
     def end_crop(self, event):
-        self.is_cropping = False
         self._drag_mode = None
         self._drag_start_canvas = None
         self._drag_orig_coords = None
