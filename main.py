@@ -602,11 +602,12 @@ class ImageCropperApp:
             elif event.delta < 0:
                 self.scale = round(max(self.scale - 0.1, 0.1), 1)
             self.display_image()
-        else:
+        elif self.images:
             self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
     def scroll_horizontal(self, event):
-        self.canvas.xview_scroll(-1 if event.delta > 0 else 1, "units")
+        if self.images:
+            self.canvas.xview_scroll(-1 if event.delta > 0 else 1, "units")
 
     # ── Crop & Save ──────────────────────────────────────────────────────────
 
