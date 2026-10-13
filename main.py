@@ -128,7 +128,8 @@ class ImageCropperApp:
         zoom_frame.pack(side=tk.LEFT)
 
         self._btn(zoom_frame, "−", self.zoom_out, style="ghost").pack(side=tk.LEFT, padx=2)
-        self._btn(zoom_frame, "100%", self.zoom_reset, style="ghost").pack(side=tk.LEFT, padx=2)
+        self.btn_zoom_level = self._btn(zoom_frame, "100%", self.zoom_reset, style="ghost")
+        self.btn_zoom_level.pack(side=tk.LEFT, padx=2)
         self._btn(zoom_frame, "＋", self.zoom_in, style="ghost").pack(side=tk.LEFT, padx=2)
         self._btn(zoom_frame, "⤢  Fit", self.zoom_fit, style="ghost").pack(side=tk.LEFT, padx=2)
 
@@ -325,6 +326,7 @@ class ImageCropperApp:
         self.canvas.delete("all")
         self.canvas.config(scrollregion=(0, 0, resized.width, resized.height))
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+        self.btn_zoom_level.config(text=f"{int(self.scale * 100)}%")
         self._draw_crop_rect()
 
     def _draw_crop_rect(self):
